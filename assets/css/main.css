@@ -761,6 +761,80 @@ h1, h2, h3, h4 {
   margin-bottom: 1.6rem;
 }
 
+/* --- 13. 語言切換與英文版 ---------------------------------------------- */
+.nav__lang {
+  font-family: var(--serif-en);
+  font-size: 0.8rem !important;
+  letter-spacing: 0.26em !important;
+  color: var(--gold) !important;
+  border-left: 1px solid var(--hairline-soft);
+  padding-left: 1.5rem !important;
+}
+.nav__lang::after { display: none; }
+.nav__lang:hover { color: var(--champagne) !important; }
+
+/* 英文版：拉丁文字不需中文那樣寬的行距與字距 */
+body.lang-en {
+  line-height: 1.88;
+  letter-spacing: 0.008em;
+}
+body.lang-en .lede { max-width: 64ch; }
+
+/* 英文版主標：以古典襯線呈現，字距收斂 */
+.hero__slogan--en {
+  font-family: var(--serif-en);
+  font-size: clamp(2rem, 5.4vw, 4.5rem);
+  line-height: 1.26;
+  letter-spacing: 0.035em;
+  font-weight: 400;
+}
+
+/* 英文版頁首的品牌字樣（Apex Wealth 為拉丁字母） */
+body.lang-en .brand__zh {
+  font-family: var(--serif-en);
+  font-size: 1.15rem;
+  letter-spacing: 0.2em;
+}
+
+/* 中文主標作為副題出現時 */
+.hero__zh-sub {
+  font-family: var(--serif-zh);
+  font-size: clamp(0.88rem, 1.5vw, 1.05rem);
+  letter-spacing: 0.44em;
+  color: var(--gold-light);
+  margin: 0 0 3rem;
+}
+
+/* 英文版標題字距（中文標題用寬字距，英文不宜） */
+body.lang-en .display,
+body.lang-en .section-title,
+body.lang-en .page-head h1 {
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+}
+body.lang-en .quote { line-height: 1.75; letter-spacing: 0.012em; }
+body.lang-en .tenet h3,
+body.lang-en .card h3,
+body.lang-en .service h3 { letter-spacing: 0.05em; }
+body.lang-en .service h3 small { letter-spacing: 0.26em; }
+body.lang-en .eyebrow { letter-spacing: 0.34em; }
+body.lang-en .brand__en { letter-spacing: 0.28em; }
+body.lang-en .hero__org { letter-spacing: 0.4em; }
+body.lang-en .hero__meta { letter-spacing: 0.16em; }
+body.lang-en .btn { letter-spacing: 0.16em; }
+body.lang-en .metric span { letter-spacing: 0.2em; }
+body.lang-en .site-footer h4 { letter-spacing: 0.24em; }
+body.lang-en .field label { letter-spacing: 0.14em; }
+body.lang-en .tags { letter-spacing: 0.1em; }
+
+@media (max-width: 900px) {
+  .nav__lang {
+    border-left: 0;
+    padding-left: 0 !important;
+    font-size: 0.95rem !important;
+  }
+}
+
 /* 加值：lang 切換用的隱藏提示 */
 .visually-hidden {
   position: absolute;
