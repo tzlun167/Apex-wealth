@@ -667,6 +667,35 @@ h1, h2, h3, h4 {
   max-width: 60ch;
 }
 
+/* 送出結果提示（由 JS 產生並填入） */
+.form__status {
+  margin: 0;
+  font-size: 0.88rem;
+  letter-spacing: 0.08em;
+  line-height: 1.8;
+  max-width: 60ch;
+  border-left: 1px solid transparent;
+  padding-left: 0;
+  transition: color .8s var(--ease-silk), border-color .8s var(--ease-silk);
+}
+.form__status:empty { display: none; }
+.form__status.is-ok {
+  color: var(--champagne);
+  border-left-color: var(--gold);
+  padding-left: 1.2rem;
+}
+.form__status.is-error {
+  color: #D9A08B;
+  border-left-color: #B0604A;
+  padding-left: 1.2rem;
+}
+
+/* 送出中：按鈕反饋 */
+.btn[disabled] {
+  opacity: .55;
+  cursor: progress;
+}
+
 /* --- 10. 頁尾 ----------------------------------------------------------- */
 .site-footer {
   border-top: 1px solid var(--hairline-soft);

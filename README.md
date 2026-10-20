@@ -203,9 +203,62 @@ sudo certbot --nginx -d apex-wealth.com.tw -d www.apex-wealth.com.tw
 3. 建置設定全部留空（純靜態，無需 build command）
 4. Pages → Custom domains → 加入網域，Cloudflare 會自動建立記錄並簽發憑證
 
+## 預約表單的兩種送出模式
+
+網站是純靜態，沒有後端。表單支援兩種模式，在 `assets/js/main.js` 的
+`ENQUIRY` 物件切換——**只改設定，不動程式**。
+
+### 模式 A：`mailto`（預設，已啟用）
+
+開啟訪客本機的郵件軟體，主旨與內容預先填好。
+零設定即可用，但不經伺服器，也依賴訪客裝了郵件軟體。
+
+```js
+var ENQUIRY = {
+  endpoint: '',            // 留空 → 走 mailto
+  ...
+};
+```
+
+### 模式 B：表單服務（真正在伺服器端收件）
+
+填入 endpoint 即啟用，送出後以 AJAX POST，頁面不跳轉，
+並顯示成功／失敗訊息（`role="status"`，螢幕閱讀器可讀）。
+
+**以 Web3Forms 為例**（免費額度、免後端）：
+
+```js
+var ENQUIRY = {
+  provider:  'web3forms',
+  endpoint:  'https://api.web3forms.com/submit',
+  accessKey: '<你的 access key>',
+  ...
+};
+```
+
+其他服務填對應 endpoint 即可：
+
+| 服務 | endpoint | 備註 |
+| --- | --- | --- |
+| Web3Forms | `https://api.web3forms.com/submit` | 需 access_key |
+| Formspree | `https://formspree.io/f/<form-id>` | 網址含 id |
+| 自建 API | 自己的網址 | 需自備 CORS |
+
+### 收件信箱的前提
+
+表單指向 `office@apex-wealth.com.tw`，但**該網域目前尚未註冊**
+（DNS 查為 NXDOMAIN），所以這個信箱現在不存在。要真的收信，順序是：
+
+1. 註冊網域
+2. 開信箱（Cloudflare Email Routing 免費轉寄，或 Zoho Mail 免費可收可寄）
+3. 接表單服務（模式 B）
+
+> GitHub 不提供任何郵件服務（無 MX、無 SMTP）——它只做靜態網頁與程式碼。
+
 ## 待辦
 
-- [ ] 預約表單目前以 `mailto:` 開啟本機郵件軟體送出。若需實際收件，須串接表單服務（Formspree / Cloudflare Workers / 自建 API）。
+- [x] 預約表單雙模式：`mailto`（預設）與表單服務 endpoint 可切換。
+- [ ] 註冊網域後開設 `office@` 信箱，再填入模式 B 的 endpoint 與 access key 真正收件。
 - [ ] 依實際據點補齊地址與聯絡電話。
 - [x] 多語系（繁中 / EN）——已建置 `en/` 五頁並接上切換。
 - [ ] 如需日文或其他語系，複製 `en/` 為樣板。

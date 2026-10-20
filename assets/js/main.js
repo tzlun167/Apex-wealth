@@ -73,22 +73,108 @@
     el.textContent = String(new Date().getFullYear());
   });
 
-  /* 7. 預約表單：靜態站，改以郵件送出（不假造後端） --------------------- */
+  /* =====================================================================
+     7. 預約表單
+     ---------------------------------------------------------------------
+     兩種送出模式，由下列設定決定。靜態站沒有後端，因此：
+
+       模式 A（預設）mailto  —  開啟訪客本機郵件軟體，內容預先填好。
+                              零設定即可用，但依賴訪客裝了郵件軟體。
+       模式 B endpoint       —  POST 到表單服務（Web3Forms / Formspree /
+                              自建 API），真正在伺服器端收件。
+
+     要切換到模式 B：把 endpoint 填上服務給的網址即可，其餘不用改。
+     Web3Forms 為例：
+       provider: 'web3forms',
+       endpoint: 'https://api.web3forms.com/submit',
+       accessKey: '<你的 access key>'
+     ===================================================================== */
+  var ENQUIRY = {
+    provider: 'mailto',
+    endpoint: '',
+    accessKey: '',
+    subject: '【尊榮預約】家族辦公室諮詢申請',
+    subjectEn: 'Private Enquiry — Apex Wealth',
+    successMsg: '已送出。我們將於三個工作日內與您聯繫。',
+    successMsgEn: 'Sent. We will contact you within three business days.',
+    errorMsg: '送出未成功，請稍後再試，或直接來信。',
+    errorMsgEn: 'Submission failed. Please retry, or write to us directly.'
+  };
+
   var form = document.querySelector('[data-enquiry-form]');
   if (form) {
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var data = new FormData(form);
-      var lines = [];
-      data.forEach(function (v, k) {
-        if (String(v).trim()) lines.push(k + '：' + v);
+    var isEn = document.body.classList.contains('lang-en');
+    var statusEl = document.createElement('p');
+    statusEl.className = 'form__status';
+    statusEl.setAttribute('role', 'status');
+    statusEl.setAttribute('aria-live', 'polite');
+    form.appendChild(statusEl);
+
+    var collect = function () {
+      var out = [];
+      new FormData(form).forEach(function (v, k) {
+        if (String(v).trim()) out.push([k, String(v)]);
       });
+      return out;
+    };
+
+    /* 模式 A：mailto */
+    var sendViaMail = function (pairs) {
       var to = form.getAttribute('data-mailto') || 'office@apex-wealth.com.tw';
-      var subject = '【尊榮預約】家族辦公室諮詢申請';
+      var body = pairs.map(function (p) { return p[0] + '：' + p[1]; }).join('\n');
       window.location.href =
         'mailto:' + to +
-        '?subject=' + encodeURIComponent(subject) +
-        '&body=' + encodeURIComponent(lines.join('\n'));
+        '?subject=' + encodeURIComponent(isEn ? ENQUIRY.subjectEn : ENQUIRY.subject) +
+        '&body=' + encodeURIComponent(body);
+      statusEl.textContent = '';
+      statusEl.className = 'form__status';
+    };
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      var pairs = collect();
+
+      /* 未設定 endpoint → 走 mailto（不假造後端） */
+      if (!ENQUIRY.endpoint) {
+        sendViaMail(pairs);
+        return;
+      }
+
+      /* 模式 B：POST 到表單服務 */
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      statusEl.textContent = '';
+      statusEl.className = 'form__status';
+
+      var payload = {};
+      pairs.forEach(function (p) { payload[p[0]] = p[1]; });
+      if (ENQUIRY.accessKey) payload.access_key = ENQUIRY.accessKey;
+      payload.subject = isEn ? ENQUIRY.subjectEn : ENQUIRY.subject;
+      payload.from_name = 'Apex Wealth Website';
+
+      fetch(ENQUIRY.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(function (r) { return r.json().catch(function () { return { success: r.ok }; }); })
+        .then(function (res) {
+          if (res && res.success) {
+            form.reset();
+            statusEl.textContent = isEn ? ENQUIRY.successMsgEn : ENQUIRY.successMsg;
+            statusEl.className = 'form__status is-ok';
+          } else {
+            throw new Error((res && res.message) || 'failed');
+          }
+        })
+        .catch(function () {
+          statusEl.textContent = isEn ? ENQUIRY.errorMsgEn : ENQUIRY.errorMsg;
+          statusEl.className = 'form__status is-error';
+        })
+        .then(function () {
+          if (btn) btn.disabled = false;
+        });
     });
   }
 })();
