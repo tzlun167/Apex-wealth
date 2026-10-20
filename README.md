@@ -14,10 +14,26 @@
 ├── services.html       核心服務：三項託付、協作四步
 ├── security.html       私密與安全：六道防線、資料處理原則、必要聲明
 ├── contact.html        尊榮預約：諮詢表單、辦公室資訊
+├── en/                 英文版（同構五頁，共用 assets）
+│   ├── index.html
+│   ├── about.html
+│   ├── services.html
+│   ├── security.html
+│   └── contact.html
 └── assets/
-    ├── css/main.css    視覺系統（設計 token、版面、元件、動效）
+    ├── css/main.css    視覺系統（設計 token、版面、元件、動效、語言版型）
     └── js/main.js      導覽、捲動漸顯、表單處理
 ```
+
+### 多語系
+
+中文版在根目錄，英文版在 `en/`，兩者共用 `assets/`。
+
+- 切換方式：各頁導覽列右上角的 `EN` / `中文` 連結
+- 排版差異：英文版在 `<body>` 加上 `class="lang-en"`，由 `main.css` 第 13 節
+  收斂拉丁文字的字距與行距（中文的寬字距套在英文上會顯得鬆散）
+- SEO：各頁以 `hreflang` 標註中英對照
+- 新增語言：複製 `en/` 為目標語系目錄，改 `<html lang>` 與 `body` class 即可
 
 ## 設計規範
 
@@ -102,11 +118,97 @@ sudo nginx -t && sudo systemctl reload nginx
 
 亦適用 GitHub Pages、Cloudflare Pages、Netlify、Vercel 等——直接指向專案根目錄即可。
 
+本專案已啟用 GitHub Pages：
+
+- 中文版：https://tzlun167.github.io/Apex-wealth/
+- 英文版：https://tzlun167.github.io/Apex-wealth/en/
+
+## 掛自訂域名
+
+### 情境一：掛在 GitHub Pages（建議）
+
+**1. 在 repo 根目錄新增 `CNAME` 檔**（內容只有一行網域，不含 `https://`）
+
+```
+apex-wealth.com.tw
+```
+
+**2. 到網域商設定 DNS 記錄**
+
+| 類型 | 名稱 | 值 |
+| --- | --- | --- |
+| A | `@` | `185.199.108.153` |
+| A | `@` | `185.199.109.153` |
+| A | `@` | `185.199.110.153` |
+| A | `@` | `185.199.111.153` |
+| CNAME | `www` | `tzlun167.github.io` |
+
+> 四筆 A 記錄指向 GitHub Pages 的固定 IP。`www` 用 CNAME 指向 `tzlun167.github.io`（結尾不加路徑）。
+
+**3. 等待 DNS 生效**（通常 10 分鐘至數小時）
+
+```bash
+dig +short apex-wealth.com.tw
+```
+
+**4. 到 GitHub 設定頁填入網域**
+
+Repo → Settings → Pages → Custom domain → 輸入網域 → Save
+
+**5. 勾選 Enforce HTTPS**（憑證簽發約需數分鐘至一小時）
+
+**6. 驗證**
+
+```bash
+curl -sI https://apex-wealth.com.tw | head -3
+```
+
+### 情境二：掛在自己的 nginx（VPS）
+
+設定檔已備妥於 `/etc/nginx/sites-available/apex-wealth`，預設監聽 8080。
+改用 80/443 與網域：
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name apex-wealth.com.tw www.apex-wealth.com.tw;
+
+    root /var/www/Apex-wealth;
+    index index.html;
+    charset utf-8;
+
+    location / {
+        try_files $uri $uri/ $uri.html =404;
+    }
+}
+```
+
+```bash
+sudo ln -sfn /etc/nginx/sites-available/apex-wealth /etc/nginx/sites-enabled/apex-wealth
+sudo nginx -t && sudo systemctl reload nginx
+
+# 免費 TLS 憑證
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d apex-wealth.com.tw -d www.apex-wealth.com.tw
+```
+
+> 注意：同機的 erp 站台目前是 `listen 80 default_server`。若兩者都要用 80，
+> 需以 `server_name` 區分（本設定已含），並確認 erp 的設定仍能比對到自己的網域。
+
+### 情境三：掛在 Cloudflare（免自架、附 CDN）
+
+1. 網域 DNS 交給 Cloudflare 代管
+2. Pages → Connect to Git → 選 `Apex-wealth` repo
+3. 建置設定全部留空（純靜態，無需 build command）
+4. Pages → Custom domains → 加入網域，Cloudflare 會自動建立記錄並簽發憑證
+
 ## 待辦
 
 - [ ] 預約表單目前以 `mailto:` 開啟本機郵件軟體送出。若需實際收件，須串接表單服務（Formspree / Cloudflare Workers / 自建 API）。
 - [ ] 依實際據點補齊地址與聯絡電話。
-- [ ] 若需多語系（EN / 繁中），建議加語言切換。
+- [x] 多語系（繁中 / EN）——已建置 `en/` 五頁並接上切換。
+- [ ] 如需日文或其他語系，複製 `en/` 為樣板。
 
 ## 聲明
 
