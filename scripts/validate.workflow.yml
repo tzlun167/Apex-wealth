@@ -1,0 +1,34 @@
+name: Validate site
+
+# 這段 YAML 就是「GitHub 會執行程式」的證明：
+# 每次 push，GitHub 會開一台 Ubuntu 機器、裝 Node.js 20、跑底下的檢查腳本。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: Check links and markup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Show runtime (證明真的在跑程式)
+        run: |
+          node --version
+          echo "Runner OS: $RUNNER_OS"
+          echo "Triggered by: $GITHUB_EVENT_NAME"
+
+      - name: Validate relative links and tag balance
+        run: node .github/scripts/validate.mjs
