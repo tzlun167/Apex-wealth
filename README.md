@@ -12,7 +12,7 @@
 ├── index.html          首頁：劇院式主視覺、核心理念、服務總覽、隱私預告
 ├── about.html          關於鼎富：家族精神的延續、三個不變的原則
 ├── services.html       核心服務：三項託付、協作四步
-├── security.html       私密與安全：六道防線、資料處理原則、必要聲明
+├── security.html       隱私與安全：六道防線、資料處理原則、必要聲明
 ├── contact.html        尊榮預約：諮詢表單、辦公室資訊
 ├── en/                 英文版（同構五頁，共用 assets）
 │   ├── index.html
