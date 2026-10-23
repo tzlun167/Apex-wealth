@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  鼎富家族辦公室 Apex Wealth Family Office — 圖記（favicon 用簡化版）
+  小尺寸下省略獅子、葉飾、緞帶與四象限細節，
+  僅保留盾形輪廓與 AW 花押，確保 16–32px 仍可辨識。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 72"
+     role="img" aria-label="鼎富家族辦公室 Apex Wealth Family Office">
+  <defs>
+    <linearGradient id="fg" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%"   stop-color="#EBD285"/>
+      <stop offset="45%"  stop-color="#D4AF37"/>
+      <stop offset="100%" stop-color="#96771F"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 盾形輪廓 -->
+  <path d="M6,10 L6,40 C6,55 20,64 32,69 C44,64 58,55 58,40 L58,10
+           C58,8 56,7 54,8 L46,12
+           C42,10 37,9 32,9 C27,9 22,10 18,12 L10,8
+           C8,7 6,8 6,10 Z"
+        fill="url(#fg)"/>
+  <!-- 深色內底 -->
+  <path d="M11,15 L11,40 C11,52 22,60 32,64 C42,60 53,52 53,40 L53,15
+           C53,14 52,14 51,14 L46,17
+           C42,15 37,14 32,14 C27,14 22,15 18,17 L13,14
+           C12,14 11,14 11,15 Z"
+        fill="#121212"/>
+
+  <!-- AW 花押（放大，小尺寸仍可辨） -->
+  <g transform="translate(32,37)" fill="none" stroke="url(#fg)"
+     stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M-13,-11 L-9,11 L-4.5,-5 L0,11 L4.5,-5 L9,11 L13,-11"/>
+    <path d="M-7,5 L0,-14 L7,5"/>
+  </g>
+</svg>

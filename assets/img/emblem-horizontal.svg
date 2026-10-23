@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  鼎富家族辦公室 Apex Wealth Family Office — 橫式商標
+  Horizontal lockup，供導覽列使用（建議高度 40–45px）
+
+  左：盾形圖記；右：中文名 + 英文名與標語
+  文字以 <text> 呈現時相依系統字型；正式印刷請轉外框或改用內嵌字型版本。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 96"
+     role="img" aria-label="鼎富家族辦公室 Apex Wealth Family Office">
+  <defs>
+    <linearGradient id="hg" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0%"   stop-color="#EBD285"/>
+      <stop offset="45%"  stop-color="#D4AF37"/>
+      <stop offset="100%" stop-color="#96771F"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圖記：盾形 + AW -->
+  <g transform="translate(4,8) scale(1.12)">
+    <path d="M6,10 L6,40 C6,55 20,64 32,69 C44,64 58,55 58,40 L58,10
+             C58,8 56,7 54,8 L46,12
+             C42,10 37,9 32,9 C27,9 22,10 18,12 L10,8
+             C8,7 6,8 6,10 Z"
+          fill="url(#hg)"/>
+    <path d="M11,15 L11,40 C11,52 22,60 32,64 C42,60 53,52 53,40 L53,15
+             C53,14 52,14 51,14 L46,17
+             C42,15 37,14 32,14 C27,14 22,15 18,17 L13,14
+             C12,14 11,14 11,15 Z"
+          fill="#121212"/>
+    <g transform="translate(32,37)" fill="none" stroke="url(#hg)"
+       stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M-13,-11 L-9,11 L-4.5,-5 L0,11 L4.5,-5 L9,11 L13,-11"/>
+      <path d="M-7,5 L0,-14 L7,5"/>
+    </g>
+  </g>
+
+  <!-- 分隔細線 -->
+  <line x1="86" y1="26" x2="86" y2="70" stroke="url(#hg)" stroke-width="1.2" opacity="0.55"/>
+
+  <!-- 中文名 -->
+  <text x="106" y="46"
+        font-family="'Noto Serif TC', 'Source Han Serif TC', 'Songti TC', serif"
+        font-size="29" letter-spacing="5" fill="#F2E0A0">鼎富家族辦公室</text>
+
+  <!-- 英文名（單行串接，避免雙欄撞字）-->
+  <text x="108" y="75"
+        font-family="'EB Garamond', Garamond, Georgia, serif"
+        font-size="16" letter-spacing="1.2" fill="#D4AF37">Apex Wealth Family Office</text>
+</svg>

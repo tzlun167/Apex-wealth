@@ -1,4 +1,4 @@
-/* 鼎富資本 · 微動效與導覽
+/* 鼎富家族辦公室 · 微動效與導覽
    原則：緩慢漸顯、優雅位移；不閃爍、不快速飛入。 */
 
 (function () {
@@ -94,7 +94,7 @@
     endpoint: '',
     accessKey: '',
     subject: '【尊榮預約】家族辦公室諮詢申請',
-    subjectEn: 'Private Enquiry — Apex Wealth',
+    subjectEn: 'Private Enquiry — Apex Wealth Family Office',
     successMsg: '已送出。我們將於三個工作日內與您聯繫。',
     successMsgEn: 'Sent. We will contact you within three business days.',
     errorMsg: '送出未成功，請稍後再試，或直接來信。',
@@ -151,7 +151,7 @@
       pairs.forEach(function (p) { payload[p[0]] = p[1]; });
       if (ENQUIRY.accessKey) payload.access_key = ENQUIRY.accessKey;
       payload.subject = isEn ? ENQUIRY.subjectEn : ENQUIRY.subject;
-      payload.from_name = 'Apex Wealth Website';
+      payload.from_name = 'Apex Wealth Family Office Website';
 
       fetch(ENQUIRY.endpoint, {
         method: 'POST',
