@@ -99,22 +99,91 @@ v=DMARC1; p=quarantine; rua=mailto:office@apex-wealth.com.tw; adkim=s; aspf=s; p
 
 ---
 
-## ⚠️ 目前無法運作的項目（重要）
+## ✅ DKIM 簽章已啟用（2026-10-26）
 
-DNS 記錄齊備**不等於**郵件系統可用。以下為實際障礙：
+DNS 公鑰與伺服器簽章已接通，實測驗證通過。
 
-1. **DKIM 簽章未啟用**
-   DNS 上的公鑰只是「宣告」，實際寄信時需要郵件伺服器用私鑰簽章。目前：
-   - `opendkim` 服務**未安裝**（只裝了 `opendkim-tools` 產金鑰）
-   - postfix **未接上 milter**
-   → 即使 TXT 設好，寄出的信仍不會帶 DKIM 簽章
+### 伺服器設定
 
-2. **對外 25 / 587 埠不通**
-   實測 `61.216.74.25:25` 與 `:587` 從外部皆無回應，代表：
+| 項目 | 值 |
+| --- | --- |
+| 服務 | `opendkim` 2.11.0（active / enabled） |
+| 設定檔 | `/etc/opendkim.conf` |
+| Domain / Selector | `apex-wealth.com.tw` / `default` |
+| 私鑰 | `/etc/dkimkeys/default.private`（600, root:root） |
+| Socket | `local:/var/spool/postfix/run/opendkim/opendkim.sock` |
+| Canonicalization | `relaxed/simple`（OversignHeaders: From） |
+| InternalHosts | `127.0.0.1, ::1, 192.168.1.0/24` |
+| LogWhy | `yes` |
+
+### postfix 接線
+
+```
+smtpd_milters     = unix:run/opendkim/opendkim.sock
+non_smtpd_milters = unix:run/opendkim/opendkim.sock
+milter_default_action = accept
+milter_protocol   = 6
+```
+
+> **路徑是相對的，不是絕對路徑。** 因為 postfix `smtpd` 跑在 chroot
+> （`master.cf` 的 chroot 欄為 `y`），`unix:run/...` 會被解析成
+> `/var/spool/postfix/run/...`。寫成絕對路徑會連不上 milter。
+
+### 必要的周邊設定
+
+- socket 目錄：`/var/spool/postfix/run/opendkim`（`opendkim:opendkim 0750`）
+- 開機後自動重建：`/etc/tmpfiles.d/opendkim.conf`
+- `postfix` 使用者已加入 `opendkim` 群組（才能存取 socket）
+- 改完須 `systemctl restart postfix`（讓新群組成員資格生效）
+
+### 驗證結果
+
+實測寄信（`office@apex-wealth.com.tw` → `apex@localhost`）：
+
+```
+opendkim 日誌: DKIM-Signature field added (s=default, d=apex-wealth.com.tw)
+信件標頭:     DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple;
+                              d=apex-wealth.com.tw; s=default; ...
+```
+
+以 DNS 公鑰做密碼學驗證（dkimpy）：
+
+```
+dkim.verify() → ✅ PASS
+```
+
+---
+
+## ⚠️ 仍未解決的限制
+
+1. **對外 25 / 587 埠不通**
+   實測 `61.216.74.25:25` 與 `:587` 從外部皆無回應：
    - **無法接收外網寄來的信**（MX 指向本機也沒用）
-   - 多數收信端會拒收從動態／未開放埠寄出的信
+   - 寄出的信容易被收信端拒收（未開放埠的來源信譽差）
+   - 需在路由器做 port forwarding，並向 ISP 確認是否封鎖 25
 
-3. **`office@apex-wealth.com.tw` 信箱尚未建立**
-   postfix 目前是 loopback-only，只在本機投遞，且沒有該帳號。
+2. **`office@apex-wealth.com.tw` 信箱尚未建立**
+   postfix 目前 `inet_interfaces = loopback-only`，只在本機投遞，且無該帳號。
+   DMARC 的 `rua` / `ruf` 報告會因此寄失敗。
 
-**要讓郵件真正能用，需先處理 25 埠對外開放（路由器 port forwarding + ISP 是否封鎖 25），再設定 opendkim 簽章與信箱。**
+**目前 DKIM 簽章在本機投遞鏈路已完全可用；跨網際網路的收發仍需先解決 25 埠。**
+
+---
+
+## 復原／回溯
+
+設定變更前的備份：
+
+```
+/etc/opendkim.conf.bak-20261026-072804
+/etc/default/opendkim.bak-20261026-072804
+/etc/postfix/main.cf.bak-20261026-072804
+/etc/postfix/master.cf.bak-20261026-072804
+```
+
+要停用 DKIM 簽章：
+
+```bash
+sudo postconf -X smtpd_milters non_smtpd_milters milter_default_action milter_protocol
+sudo systemctl restart postfix
+```
