@@ -346,3 +346,74 @@ SMTP/POP3 使用的憑證 SAN 為 `apex-wealth.com.tw, www.apex-wealth.com.tw`�
 /etc/postfix/main.cf.bak-20261026-072804
 /etc/postfix/master.cf.bak-20261026-072804
 ```
+
+---
+
+## 🔧 修正紀錄：客戶端採 110/25（2026-10-28）
+
+客戶端實際使用 **POP3 110 + SMTP 25**（皆明文），需三處配合修正。
+
+### 1. Dovecot 放寬明文認証
+
+```
+disable_plaintext_auth = no
+```
+
+原本為 `yes`（安全考量），導致 110 埠回 `Plaintext authentication disallowed on non-secure connection`。
+改為 `no` 後，110 可用；995 亦照常運作。
+
+### 2. postfix 允許 LAN 客戶端經 25 埠寄信
+
+```
+mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 192.168.1.0/24
+```
+
+原僅 loopback，區網客戶端經 25 埠寄外部信會遭 `454` 拒絕。加入 `192.168.1.0/24` 後放行。
+
+> ⚠️ 這是**必要且刻意**的設定：LAN 客戶端用 25 埠（明文、無認証）寄信，必須靠來源網段放行。
+> 外部來源不在 `mynetworks`，仍會被 `defer_unauth_destination` 拒絕轉寄——已驗證非開放轉寄站。
+
+### 3. postfix 傳輸設定（最關鍵，容易漏）
+
+```
+default_transport = smtp
+relay_transport   = smtp
+```
+
+原為 `error`——這是安裝 postfix 時選「Local only」留下的殘留值，
+**會讓所有需要離開本機的郵件直接被拒**（`550 Recipient address rejected`）。
+郵件可本地投遞、也能通過 RCPT 檢查，但一寄外網就失敗，症狀極具誤導性。
+
+### 4. 其他
+
+- `myorigin = apex-wealth.com.tw`：原為 `$myhostname`（`apex-wealth`），
+  導致本機系統信寄件者為 `root@apex-wealth`，DKIM 因網域不符而**不簽章**
+- `root` 別名改指向 `office`（系統通知信收件人）
+
+### 端到端驗證（全部通過）
+
+| 項目 | 結果 |
+| --- | --- |
+| 區網 110 登入 | ✅ |
+| 對外 110 登入 | ✅ |
+| 對外 25 寄信（LAN 來源） | ✅ 外部收件人 `250` |
+| 對外投遞實測 | ✅ `relay=mail2.mailinator.com ... status=sent (250 Ok)` |
+| DKIM 簽章 | ✅ `dkim.verify()` PASS |
+| 開放轉寄防護 | ✅ 外部來源遭 `defer_unauth_destination` 拒絕 |
+
+### 客戶端最終設定
+
+| 欄位 | 值 |
+| --- | --- |
+| 內送伺服器 | `mail.apex-wealth.com.tw` |
+| 內送埠 | **110**（或 995 SSL） |
+| 外寄伺服器 | `mail.apex-wealth.com.tw` |
+| 外寄埠 | **25**（或 587/465 需認証） |
+| 帳號 | `kane` / `office` / `apex`（系統帳號） |
+| 密碼 | 各自帳號的系統密碼 |
+| 外寄需認証 | 否（25 埠，限內網來源） |
+
+> ⚠️ **安全權衡**：110 與 25 皆為明文。帳密以明文傳輸、寄信不需認証。
+> 若環境允許，建議改用 995（收）+ 587（寄）；反之若要恢復嚴格模式，
+> 設 `disable_plaintext_auth = yes` 並將客戶端改用 995。
+
