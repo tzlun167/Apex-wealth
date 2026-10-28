@@ -8,7 +8,8 @@
 >
 > - **POP3/IMAP 收信必須認證** — 需帳號 + 密碼，無法匿名讀信（`auth_mechanisms = plain`，無 anonymous）
 > - **SMTP 外寄必須認證** — 需 SASL 認證（同日修正）
-> - **收信（外部投遞進本站）不需認證** — 這是 SMTP 標準，否則外網無法寄信進來
+> - **收信（外部投遞進本站）也需認證** ⚠️ → 依 2026-10-28 要求改為全部需認證，
+>   **後果是外網（Gmail 等）完全寄不進來**，詳見文末
 > - **傳輸未加密**（依需求不使用憑證）— 帳密以明文傳輸，是目前的已知風險
 > - **fail2ban 已保護** sshd / postfix-sasl / dovecot（POP3/IMAP 暴力破解）
 
@@ -573,6 +574,85 @@ smtpd_tls_auth_only      = no
 ```bash
 sudo postconf -e 'smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination'
 sudo postconf -e 'mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 192.168.1.0/24'
+sudo systemctl restart postfix
+```
+
+---
+
+## 🔐 所有收發信均需認証，僅 127.0.0.1 例外（2026-10-28，依要求）
+
+### 設定內容
+
+```
+smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject
+smtpd_relay_restrictions     = permit_mynetworks, permit_sasl_authenticated, reject
+mynetworks                   = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
+smtpd_delay_reject           = yes
+smtpd_helo_required          = yes
+```
+
+`mynetworks` 僅含 loopback，故 `permit_mynetworks` 實際等同「**只有 127.0.0.1 免認証**」。
+其餘一律須 SASL 認証，否則 `reject`。
+
+### 驗証結果
+
+| 來源 | 認証 | 收件人 | 結果 |
+| --- | --- | --- | --- |
+| `127.0.0.1` | 免 | 本地 | ✅ `250` |
+| `127.0.0.1` | 免 | 外部 | ✅ `250` |
+| 區網 `192.168.1.34` | 無 | 本地 | ✅ `554` 拒絕 |
+| 區網 `192.168.1.34` | 無 | 外部 | ✅ `554` 拒絕 |
+| 區網 `192.168.1.34` | 有 | 本地／外部 | ✅ `250` |
+| 外部 `61.216.74.25` | 無 | 本地 | ⛔ `554 Access denied` |
+| 本機系統信（cron 等） | — | 本地 | ✅ 正常投遞 |
+
+拒絕日誌：
+
+```
+NOQUEUE: reject: RCPT from _gateway[192.168.1.1]: 554 5.7.1
+<office@apex-wealth.com.tw>: Recipient address rejected: Access denied;
+from=<friend@gmail.com> proto=ESMTP helo=<mail.gmail.com>
+```
+
+### ⚠️⚠️ 重大後果：外部郵件完全無法送達
+
+**這是此設定的直接結果，必須理解：**
+
+SMTP 的運作前提是「寄件方的伺服器無法通過你伺服器的認證」——
+Gmail、Outlook、任何外部寄件者都**沒有你伺服器的帳號密碼**，
+因此它們投遞到 `office@apex-wealth.com.tw` 時一律被 `554` 拒絕。
+
+| 情境 | 結果 |
+| --- | --- |
+| 客戶端（有帳密）寄信出去 | ✅ 可以 |
+| 客戶端（有帳密）收自己信箱的信 | ✅ 可以（POP3/IMAP 需認証） |
+| **外部（Gmail 等）寄信給你** | ⛔ **全部被拒，永遠收不到** |
+
+**實務上這等於：這個信箱只能「內部互通」與「對外寄出」，無法接收任何外來郵件。**
+
+若日後需要接收外部郵件（例如客戶、銀行、任何人的來信），必須至少放行
+`permit_sasl_authenticated` 之外的合法投遞路徑，例如：
+
+```
+# 允許投遞到本地網域（收信），但仍禁止未認証轉寄（寄外）
+smtpd_relay_restrictions     = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination
+smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, permit
+```
+
+前者的 `defer_unauth_destination` 會放行「投遞到本地網域」、擋掉「未認証轉寄」——
+這是標準郵件伺服器的做法（先前即為此設定）。
+
+### 回溯備份
+
+```
+/etc/postfix/main.cf.bak-allauth-20261028-095111
+```
+
+要恢復「可接收外部郵件」：
+
+```bash
+sudo postconf -e 'smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination'
+sudo postconf -X smtpd_recipient_restrictions
 sudo systemctl restart postfix
 ```
 
