@@ -417,3 +417,93 @@ relay_transport   = smtp
 > 若環境允許，建議改用 995（收）+ 587（寄）；反之若要恢復嚴格模式，
 > 設 `disable_plaintext_auth = yes` 並將客戶端改用 995。
 
+---
+
+## 🔓 停用郵件 TLS／憑證（2026-10-28，依需求）
+
+客戶端要求**不使用憑證**。原因：SMTP/POP3 使用的憑證 SAN 僅含
+`apex-wealth.com.tw, www.apex-wealth.com.tw`，**不含 `mail.apex-wealth.com.tw`**，
+客戶端連 `mail.` 時 STARTTLS 會撞上名稱不符 → Outlook 跳憑證警告。
+
+### 變更內容
+
+**postfix**
+
+```
+smtpd_tls_security_level = none      # 25 埠不再宣告 STARTTLS
+smtpd_use_tls            = no
+smtp_tls_security_level  = none      # 對外投遞亦不啟用 TLS
+smtp_use_tls             = no
+smtpd_tls_cert_file      =           # 清空
+smtpd_tls_key_file       =
+```
+
+`master.cf` 移除 `submission`(587) 與 `smtps`(465) 服務——這兩個定義上需要 TLS，
+無憑證即無意義。因此 **587 / 465 已不再監聽**。
+
+**dovecot**
+
+```
+ssl                    = no
+disable_plaintext_auth = no
+```
+
+因 `ssl = no`，**993 / 995 已不再監聽**。
+
+### 現行監聽埠
+
+| 埠 | 服務 | 加密 |
+| --- | --- | --- |
+| 25 | SMTP | 無 |
+| 110 | POP3 | 無 |
+| 143 | IMAP | 無 |
+
+### 客戶端設定（最終）
+
+| 欄位 | 值 |
+| --- | --- |
+| 內送伺服器 | `mail.apex-wealth.com.tw` |
+| 內送埠 | **110** |
+| 外寄伺服器 | `mail.apex-wealth.com.tw` |
+| 外寄埠 | **25** |
+| 加密 | **無**（不要選 SSL/TLS/STARTTLS） |
+| 帳號 | `kane` / `office` / `apex` |
+| 密碼 | 各帳號的系統密碼 |
+| 外寄需認証 | 否 |
+
+> ⚠️ 客戶端若強制要求加密，這些埠會連不上。務必把加密選項設為「無」。
+
+### 安全影響（必讀）
+
+1. **帳密以明文在網路上傳輸**（110 POP3 登入、SMTP 內容）
+2. **25 埠寄信不需認証**——僅靠 `mynetworks`（含 `192.168.1.0/24`）限制來源
+3. **對外投遞也不再加密**（`smtp_tls_security_level = none`）——
+   部分收信端（Gmail 等）可能因未加密而降低評分或直接拒收
+4. **DKIM 簽章不受影響**，仍正常運作
+
+### 若日後要恢復加密
+
+```bash
+# postfix
+sudo postconf -e 'smtpd_tls_security_level = may'
+sudo postconf -e 'smtpd_tls_cert_file = /etc/postfix/tls/mail.crt'
+sudo postconf -e 'smtpd_tls_key_file  = /etc/postfix/tls/mail.key'
+sudo postconf -e 'smtp_tls_security_level = may'
+
+# dovecot
+sudo sed -i 's/^ssl = no/ssl = yes/' /etc/dovecot/conf.d/10-ssl.conf
+sudo sed -i 's/^disable_plaintext_auth = no/disable_plaintext_auth = yes/' /etc/dovecot/conf.d/10-auth.conf
+
+sudo systemctl restart postfix dovecot
+```
+
+另需重新簽發含 `mail.` 子域的憑證（目前 SAN 不含），否則警告依舊。
+
+### 回溯備份
+
+```
+/etc/postfix/main.cf.bak-notls-20261028-051602
+/etc/postfix/master.cf.bak-notls-20261028-051602
+/etc/dovecot/conf.d/10-ssl.conf.bak-notls-20261028-051602
+```
+
