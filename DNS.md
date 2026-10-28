@@ -213,54 +213,130 @@ mydestination = $myhostname, apex-wealth.com.tw, mail.apex-wealth.com.tw, localh
 
 ---
 
-## ⛔ 仍卡住：對外 SMTP 25 埠不通
 
-這是目前**唯一**阻止郵件真正可用的問題。
+---
 
-實測 `61.216.74.25` 對外埠狀態：
+## ✅ SMTP 寄信服務已啟用（2026-10-28）
 
-| 埠 | 狀態 |
+客戶端需 POP3 收 + SMTP 寄，原 postfix 只綁 loopback，已補齊。
+
+### 新增服務埠
+
+| 埠 | 協定 | 認証 | 用途 |
+| --- | --- | --- | --- |
+| 25 | SMTP | 無（僅收信） | 外部投遞進來的信 |
+| **587** | submission | 需 SASL | 客戶端寄信（STARTTLS） |
+| **465** | smtps | 需 SASL | 客戶端寄信（直接 TLS） |
+
+### 關鍵設定
+
+```
+inet_interfaces    = all          # 原為 loopback-only，這是最關鍵的一行
+smtpd_sasl_type    = dovecot
+smtpd_sasl_path    = /var/spool/postfix/private/auth
+smtpd_sasl_auth_enable = yes
+smtpd_tls_cert_file = /etc/postfix/tls/mail.crt
+smtpd_tls_key_file  = /etc/postfix/tls/mail.key
+smtpd_tls_security_level = may
+smtpd_tls_protocols = >=TLSv1.2
+```
+
+`master.cf` 新增 `submission`（587）與 `smtps`（465）兩個服務，並把 `smtp`/`cleanup` 的 chroot 關掉（`y` → `n`）。
+
+### SASL 認証接線（Dovecot → postfix）
+
+`/etc/dovecot/conf.d/10-master.conf`：
+
+```
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+```
+
+### TLS 憑證
+
+postfix 無法直接讀 `/etc/letsencrypt/`（權限太緊），故複製一份到 `/etc/postfix/tls/`（`mail.key` 權限 640 root:postfix）。
+
+續期時自動同步：已安裝 `/etc/letsencrypt/renewal-hooks/deploy/postfix-tls.sh`。
+
+---
+
+## ✅ 對外埠全部開通（2026-10-28 後續）
+
+使用者完成路由器 port forwarding 後實測：
+
+| 埠 | 服務 | 狀態 |
+| --- | --- | --- |
+| 25 | SMTP 收信 | ✅ 開放（banner: `220 apex-wealth ESMTP Postfix`） |
+| 110 | POP3 | ✅ 開放 |
+| 143 | IMAP | ✅ 開放 |
+| 465 | SMTPS | ✅ 開放 |
+| 587 | submission | ✅ 開放 |
+| 993 | IMAPS | ✅ 開放 |
+| 995 | POP3S | ✅ 開放 |
+
+### 端到端驗証（全部通過）
+
+1. **外部投遞**：模擬外部 SMTP（25 埠）寄至 `office@apex-wealth.com.tw` → `250 Ok`，DATA 接受 ✅
+2. **非 open relay**：外部嘗試轉寄至 `gmail.com` → `454` 被拒 ✅
+3. **客戶端寄信**：經 587（STARTTLS + SASL）與 465（TLS + SASL）登入並寄出 ✅
+4. **DKIM 簽章**：日誌 `DKIM-Signature field added`，信件確實带簽章 ✅
+5. **POP3 收信**：贖 995 登入，信確實收得到（3 封測試信）✅
+
+**郵件系統現已完整可用：外部寄入 + 客戶端收發都通。**
+
+---
+
+## Outlook / 客戶端設定（最終版）
+
+| 欄位 | 值 |
 | --- | --- |
-| **25（SMTP 收信）** | **不通** ⛔ |
-| 587（SMTP 寄信） | 不通 ⛔ |
-| 110（POP3） | 開放 ✅ |
-| 143（IMAP） | 開放 ✅ |
-| 993（IMAPS） | 開放 ✅ |
-| 995（POP3S） | 開放 ✅ |
+| 內送伺服器 | `mail.apex-wealth.com.tw` |
+| 內送埠 | **995**（SSL） |
+| 外寄伺服器 | `mail.apex-wealth.com.tw` |
+| 外寄埠 | **587**（STARTTLS）或 **465**（SSL） |
+| 帳號 | `office` |
+| 密碼 | 伺服器 `/root/office-mail-password.txt` |
+| 需驗証 | 是（與內送相同帳密） |
 
-### 這代表什麼
+### ⚠️ 110 埠不能用了
 
-- ✅ **POP3/IMAP 可以從外網連**：Outlook 能連上、能登入、能讀信
-- ⛔ **但外網寄來的信進不了**：25 埠不通 → 沒人能把信投遞到這台
+`disable_plaintext_auth = yes` 已設為**禁用明文認証**（安全考量），因此：
 
-**形成一個閉迴路：信箱可以讀，但沒人能把信送進去。**
+- **必須用 995（SSL）**，用 110 會得 `Plaintext authentication disallowed`
+- 若真的要讓 110 能用，需在內網環境才考慮把它改回 `no`
 
-外部寄信方（如 Gmail）會嘗試連 `mail.apex-wealth.com.tw:25` → 連不上 → 退信或延遲重試。
+### 憑證警告
 
-### 要打通需要
+SMTP/POP3 使用的憑證 SAN 為 `apex-wealth.com.tw, www.apex-wealth.com.tw`，**不含 `mail.apex-wealth.com.tw`**。客戶端可能跳出名稱不符警告。
 
-1. **路由器 port forwarding**：把 25 埠轉到 `192.168.1.34`（POP3 那四個埠已開，比照辦理）
-2. **確認 ISP 未封 25**：多數家用線路預設封鎖，需致電 ISP 申請解除
-3. **本機 postfix 改綁對外**：`inet_interfaces = all`（目前為 `loopback-only`）
+若要消除，需重新簽發含 mail 子域的憑證（需 80 埠對外可達做 ACME 驗証，但目前 80 未開）。目前的替代方案：客戶端手動信任憑證。
 
-> 前三項完成後，還需處理**垃圾郵件防護與 IP 信譽**——家用 IP 寄出的信常被 Gmail/Outlook 歸於垃圾信。
+---
+
+## 仍建議改善的項目
+
+1. **垃圾郵件防護**：目前無 SpamAssassin / Rspamd，收到垃圾信只能自己刪
+2. **IP 信譽**：家用 IP 寄出的信仍可能被 Gmail/Outlook 歸於垃圾信（SPF/DKIM/DMARC 已備，但 IP 信譽需時間累積）
+3. **fail2ban 未納入郵件 jail**：可加 `postfix-sasl` jail 擋暴力破解
+4. **憑證 SAN 缺 mail 子域**（見上）
 
 ---
 
 ## 回溯備份
 
 ```
+/etc/postfix/main.cf.bak-20261028-023706
+/etc/postfix/master.cf.bak-20261028-023706
+/etc/dovecot/conf.d/10-master.conf.bak-20261028-023706
 /etc/postfix/main.cf.bak-20261028-015838
 /etc/dovecot/conf.d/10-auth.conf.bak-20261028-015838
 /etc/opendkim.conf.bak-20261026-072804
 /etc/default/opendkim.bak-20261026-072804
 /etc/postfix/main.cf.bak-20261026-072804
 /etc/postfix/master.cf.bak-20261026-072804
-```
-
-還原範例：
-
-```bash
-sudo cp /etc/postfix/main.cf.bak-20261028-015838 /etc/postfix/main.cf
-sudo systemctl restart postfix
 ```
