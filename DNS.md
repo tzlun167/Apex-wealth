@@ -656,3 +656,117 @@ sudo postconf -X smtpd_recipient_restrictions
 sudo systemctl restart postfix
 ```
 
+---
+
+## ✅ 重新簽發憑證（含 mail. 子域）+ 恢復郵件 TLS（2026-10-28）
+
+### 起因
+
+憑證 SAN 原本只含 `@` 與 `www`，**不含 `mail.apex-wealth.com.tw`**，
+客戶端連 `mail.` 時名稱不符而跳警告。
+
+### 關鍵事實修正
+
+先前記載「80 埠不通」是**錯的**。實測（外部代理 + 多節點）確認
+**80 埠對外可達**，因此可走 HTTP-01 自動驗証，**不需手動更新 DNS**。
+
+### 做法
+
+建立僅供 ACME 使用的 nginx 站台（網站本體仍未上線）：
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name apex-wealth.com.tw www.apex-wealth.com.tw mail.apex-wealth.com.tw;
+    location /.well-known/acme-challenge/ { root /var/www/acme; default_type text/plain; }
+    location / { return 404; }
+}
+```
+
+簽發：
+
+```bash
+sudo certbot certonly --webroot -w /var/www/acme \
+  -d apex-wealth.com.tw -d www.apex-wealth.com.tw -d mail.apex-wealth.com.tw \
+  --expand --non-interactive --agree-tos --email office@apex-wealth.com.tw
+```
+
+### 結果
+
+```
+Domains: apex-wealth.com.tw mail.apex-wealth.com.tw www.apex-wealth.com.tw
+Expiry:  2027-01-26（89 天）
+authenticator = webroot      ← 已從 nginx 改為 webroot，續期不再依賴站台設定
+certbot.timer = active/enabled
+```
+
+逐主機名驗証：三個名稱皆 `does match certificate`。
+
+### 重要：續期全自動，不需人工
+
+`certbot.timer` 每天檢查兩次，到期前 30 天自動續。
+驗証走 `/var/www/acme`（webroot），與 nginx 站台設定解耦。
+續期後由 `/etc/letsencrypt/renewal-hooks/deploy/postfix-tls.sh`
+自動同步給 postfix 與 dovecot 並重載服務。
+
+> `--dry-run` 實測通過，確認整條續期鏈路有效。
+
+### 郵件 TLS 恢復
+
+| 服務 | 設定 |
+| --- | --- |
+| postfix | `smtpd_tls_security_level = may`、憑證指向 `/etc/postfix/tls/mail.*` |
+| postfix | `smtp_tls_security_level = may`（對外投遞也加密） |
+| dovecot | `ssl = yes`、憑證指向 `/etc/dovecot/private/mail.*` |
+| master.cf | 補回 `submission`(587) 與 `smtps`(465) |
+
+### 現行監聽埠（全部對外可達）
+
+| 埠 | 服務 | 加密 | 認証 |
+| --- | --- | --- | --- |
+| 25 | SMTP | STARTTLS（可選） | 需（轉寄） |
+| **587** | submission | **必須 STARTTLS** | 需 |
+| **465** | smtps | **直接 TLS** | 需 |
+| 110 | POP3 | 無（相容保留） | 需 |
+| **995** | POP3S | **TLS** | 需 |
+| 143 | IMAP | STARTTLS | 需 |
+| **993** | IMAPS | **TLS** | 需 |
+
+### 對外實測（真實連線，非繞過）
+
+```
+995 POP3S:      subject=CN=apex-wealth.com.tw
+                issuer=Let's Encrypt
+                Verify return code: 0 (ok)
+587 STARTTLS:   同上，verify ok
+465 smtps:      ✅ 登入成功
+```
+
+**客戶端不再會有憑證警告。**
+
+### 建議的客戶端設定（改用加密）
+
+| 欄位 | 值 |
+| --- | --- |
+| 內送伺服器 | `mail.apex-wealth.com.tw` |
+| 內送埠 | **995**（SSL/TLS） |
+| 外寄伺服器 | `mail.apex-wealth.com.tw` |
+| 外寄埠 | **587**（STARTTLS）或 **465**（SSL） |
+| 加密 | **啟用** |
+| 外寄需認証 | 是（同內送帳密） |
+
+舊的 110 / 25 仍保留可用（客戶端相容），但**建議改用 995 / 587**：
+帳密不再明文傳輸。
+
+### 回溯備份
+
+```
+/etc/postfix/main.cf.bak-tls2-20261028-152924
+/etc/postfix/master.cf.bak-tls2-20261028-152924
+/etc/dovecot/conf.d/10-ssl.conf.bak-tls2-20261028-152924
+```
+
+> ACME 站台（`/etc/nginx/sites-available/acme`）僅服務 `.well-known/acme-challenge/`，
+> 其餘路徑回 404——網站本體仍維持不上線（依先前的決策）。
+
