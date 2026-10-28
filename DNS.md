@@ -154,36 +154,113 @@ dkim.verify() → ✅ PASS
 
 ---
 
-## ⚠️ 仍未解決的限制
-
-1. **對外 25 / 587 埠不通**
-   實測 `61.216.74.25:25` 與 `:587` 從外部皆無回應：
-   - **無法接收外網寄來的信**（MX 指向本機也沒用）
-   - 寄出的信容易被收信端拒收（未開放埠的來源信譽差）
-   - 需在路由器做 port forwarding，並向 ISP 確認是否封鎖 25
-
-2. **`office@apex-wealth.com.tw` 信箱尚未建立**
-   postfix 目前 `inet_interfaces = loopback-only`，只在本機投遞，且無該帳號。
-   DMARC 的 `rua` / `ruf` 報告會因此寄失敗。
-
-**目前 DKIM 簽章在本機投遞鏈路已完全可用；跨網際網路的收發仍需先解決 25 埠。**
 
 ---
 
-## 復原／回溯
+## ✅ POP3 / IMAP 收信服務已啟用（2026-10-28）
 
-設定變更前的備份：
+使用者在 Outlook 設定 POP3 收信失敗（原無此服務），已裝 Dovecot 補齊。
+
+### 套件與服務
+
+| 項目 | 值 |
+| --- | --- |
+| 套件 | `dovecot-core` / `dovecot-pop3d` / `dovecot-imapd` 2.3.21 |
+| 服務 | `dovecot`（active / enabled） |
+| 協定 | `imap pop3` |
+| 郵件格式 | `mbox:~/mail:INBOX=/var/mail/%u`（與 postfix 一致） |
+| 認証 | PAM（系統帳號）+ passwd userdb |
+
+### 監聽埠
+
+| 埠 | 協定 | 用途 |
+| --- | --- | --- |
+| 110 | POP3 | 明文（區網） |
+| 995 | POP3S | TLS 加密 |
+| 143 | IMAP | 明文 / STARTTLS |
+| 993 | IMAPS | TLS 加密 |
+
+均綁 `0.0.0.0`（含 IPv6）。
+
+### `office@apex-wealth.com.tw` 帳號
+
+- 系統帳號 `office`（uid 1002，shell 設為 `nologin`）
+- 信箱：`/var/mail/office`（mbox 格式）
+- 密碼：存於伺服器 `/root/office-mail-password.txt`（600, root only），**未入版控**
+
+### postfix 收件網域修正（關鍵）
+
+原 `mydestination` 不含本網域，寄給 `office@apex-wealth.com.tw` 會被拒收。已改為：
 
 ```
+mydestination = $myhostname, apex-wealth.com.tw, mail.apex-wealth.com.tw, localhost.localdomain, localhost
+```
+
+---
+
+## Outlook 連線設定
+
+| 欄位 | 值 |
+| --- | --- |
+| 內送伺服器 | `mail.apex-wealth.com.tw` |
+| 內送埠（POP3） | `995`（SSL）或 `110`（明文） |
+| 外寄伺服器 | `mail.apex-wealth.com.tw` |
+| 外寄埠（SMTP） | `587`（STARTTLS）⚠️ 見下方限制 |
+| 帳號 | `office` |
+| 密碼 | 見伺服器 `/root/office-mail-password.txt` |
+
+> 若從區網連，可把伺服器改為 `192.168.1.34`。
+
+---
+
+## ⛔ 仍卡住：對外 SMTP 25 埠不通
+
+這是目前**唯一**阻止郵件真正可用的問題。
+
+實測 `61.216.74.25` 對外埠狀態：
+
+| 埠 | 狀態 |
+| --- | --- |
+| **25（SMTP 收信）** | **不通** ⛔ |
+| 587（SMTP 寄信） | 不通 ⛔ |
+| 110（POP3） | 開放 ✅ |
+| 143（IMAP） | 開放 ✅ |
+| 993（IMAPS） | 開放 ✅ |
+| 995（POP3S） | 開放 ✅ |
+
+### 這代表什麼
+
+- ✅ **POP3/IMAP 可以從外網連**：Outlook 能連上、能登入、能讀信
+- ⛔ **但外網寄來的信進不了**：25 埠不通 → 沒人能把信投遞到這台
+
+**形成一個閉迴路：信箱可以讀，但沒人能把信送進去。**
+
+外部寄信方（如 Gmail）會嘗試連 `mail.apex-wealth.com.tw:25` → 連不上 → 退信或延遲重試。
+
+### 要打通需要
+
+1. **路由器 port forwarding**：把 25 埠轉到 `192.168.1.34`（POP3 那四個埠已開，比照辦理）
+2. **確認 ISP 未封 25**：多數家用線路預設封鎖，需致電 ISP 申請解除
+3. **本機 postfix 改綁對外**：`inet_interfaces = all`（目前為 `loopback-only`）
+
+> 前三項完成後，還需處理**垃圾郵件防護與 IP 信譽**——家用 IP 寄出的信常被 Gmail/Outlook 歸於垃圾信。
+
+---
+
+## 回溯備份
+
+```
+/etc/postfix/main.cf.bak-20261028-015838
+/etc/dovecot/conf.d/10-auth.conf.bak-20261028-015838
 /etc/opendkim.conf.bak-20261026-072804
 /etc/default/opendkim.bak-20261026-072804
 /etc/postfix/main.cf.bak-20261026-072804
 /etc/postfix/master.cf.bak-20261026-072804
 ```
 
-要停用 DKIM 簽章：
+還原範例：
 
 ```bash
-sudo postconf -X smtpd_milters non_smtpd_milters milter_default_action milter_protocol
+sudo cp /etc/postfix/main.cf.bak-20261028-015838 /etc/postfix/main.cf
 sudo systemctl restart postfix
 ```
