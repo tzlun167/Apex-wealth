@@ -507,3 +507,64 @@ sudo systemctl restart postfix dovecot
 /etc/dovecot/conf.d/10-ssl.conf.bak-notls-20261028-051602
 ```
 
+---
+
+## 🔒 外寄改為需要認証（2026-10-28，依要求）
+
+原設定 `smtpd_relay_restrictions = permit_mynetworks ...` + `mynetworks` 含
+`192.168.1.0/24`，導致**區網內任何人免認証即可寄外部信**（詢問者指出此風險）。
+
+### 變更
+
+```
+smtpd_relay_restrictions = permit_sasl_authenticated, defer_unauth_destination
+mynetworks               = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
+smtpd_tls_auth_only      = no
+```
+
+關鍵是**移除 `permit_mynetworks`**，並把 `mynetworks` 收回 loopback。
+
+### 行為驗證（實測）
+
+| 情境 | 結果 |
+| --- | --- |
+| 區網來源 + 未認証 + 寄外部 | ❌ `454 4.7.1 Relay access denied` |
+| 區網來源 + 已認証 + 寄外部 | ✅ `250`，實際投遞 `status=sent (250 Ok)` |
+| 任來源 + 未認証 + 寄本地 | ✅ `250`（正常：投遞進本站不需認証） |
+
+> `defer_unauth_destination` 只擋「轉寄到非本地網域」，不影響外部寄來的收件。
+
+### 客戶端設定（更新）
+
+| 欄位 | 值 |
+| --- | --- |
+| 外寄伺服器 | `mail.apex-wealth.com.tw` |
+| 外寄埠 | **25** |
+| **外寄需認証** | **是** |
+| 帳號／密碼 | 同內送（系統帳號） |
+| 加密 | 無 |
+
+> 25 埠無 TLS，客戶端須允許「未加密傳送密碼」（AUTH PLAIN）。
+> 若客戶端強制要求加密才肯送帳密，則無法用 25 埠認証，需改用 587（但目前已因停用 TLS 而移除）。
+
+### ⚠️ 已知的未解風險
+
+**25 埠無加密 → 認証帳密以明文傳輸**（AUTH PLAIN）。
+客戶端與伺服器之間的網路上若有竊聽者，帳密會曝光。
+
+理想做法是恢復 TLS 並使用 587/993/995，但使用者明確要求不使用憑證，故維持現狀。
+
+### 回溯備份
+
+```
+/etc/postfix/main.cf.bak-requireauth-20261028-080432
+```
+
+要改回免認証（不建議）：
+
+```bash
+sudo postconf -e 'smtpd_relay_restrictions = permit_mynetworks permit_sasl_authenticated defer_unauth_destination'
+sudo postconf -e 'mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 192.168.1.0/24'
+sudo systemctl restart postfix
+```
+
