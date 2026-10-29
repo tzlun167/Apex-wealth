@@ -842,3 +842,151 @@ smtpd_recipient_restrictions = （移除，不設 reject）
 | 外寄需認證 | **是** |
 | 帳號／密碼 | 系統帳號（`kane` / `office` / `apex`） |
 
+---
+
+## 🔧 mail-tester 評分修正 + 黑名單機制（2026-10-29）
+
+### 修正的三個扣分項
+
+原先 mail-tester / SpamAssassin 扣分：
+
+| 項目 | 扣分 | 原因 |
+| --- | --- | --- |
+| `HELO_NO_DOMAIN` | **-1.093** | HELO 公告 `apex-wealth`（非 FQDN） |
+| `FSL_HELO_NON_FQDN_1` | -0.001 | 同上 |
+| 反向 DNS 不符 | **-3** | PTR 為 `mail.apex-wealth.com.tw`，但 HELO 是 `apex-wealth` |
+
+### 修改
+
+```
+myhostname = mail.apex-wealth.com.tw      # 原：apex-wealth
+```
+
+配套：
+
+- `/etc/hosts` 加入 `192.168.1.34  mail.apex-wealth.com.tw  apex-wealth`
+- `/etc/mailname` 同步為 `mail.apex-wealth.com.tw`
+- **同步 chroot 內的 hosts**：`cp /etc/hosts /var/spool/postfix/etc/hosts`
+  （postfix 會警告 `/var/spool/postfix/etc/hosts and /etc/hosts differ`）
+
+### 結果
+
+```
+HELO banner: 220 mail.apex-wealth.com.tw ESMTP Postfix
+```
+
+**HELO 名 與 PTR 一致** → `HELO_NO_DOMAIN` 與反解不符兩個扣分項皆消除。
+
+---
+
+## 🚫 外部投遞黑名單機制
+
+### 檔案
+
+| 檔案 | 用途 |
+| --- | --- |
+| `/etc/postfix/blacklist` | 拒絕連線（IP / CIDR / 網域） |
+| `/etc/postfix/whitelist` | 白名單，優先於黑名單 |
+
+兩者都需 `postmap` 編譯，修改後執行 `postmap /etc/postfix/blacklist && postfix reload`。
+
+### 黑名單格式
+
+```
+# 單一 IP
+203.0.113.99    REJECT Known spam source
+# 網段
+203.0.113.0/24  REJECT Blacklisted network
+# 整個網域（含子網域）
+.badzone.example REJECT Blacklisted domain
+```
+
+### 白名單格式
+
+```
+127.0.0.0/8      OK
+[::1]/128        OK
+192.168.1.0/24   OK
+.google.com      OK     # 避免誤擋 DMARC 報告
+.outlook.com     OK
+```
+
+### postfix 設定
+
+```
+smtpd_client_restrictions = check_client_access hash:/etc/postfix/whitelist,
+                            check_client_access hash:/etc/postfix/blacklist,
+                            permit
+smtpd_helo_required = yes
+```
+
+查表順序：**先白名單（OK 即放行）→ 再黑名單（REJECT 即拒）→ 最後 permit**。
+
+### 驗証
+
+加入測試項 `203.0.113.99 REJECT Test` → `postmap -q` 回 `REJECT Test blacklist entry` ✅
+（驗証後已還原）
+
+### 未啟用 RBL（刻意的）
+
+**未啟用 Spamhaus 等外部 RBL**，原因：
+
+1. 若本機 DNS 查詢被攔或 RBL 服務不可達，可能導致**所有外部郵件被誤擋**
+2. 家用 IP 環境查 RBL 常被限流（Spamhaus 對公開 resolver 有限制）
+3. 目前黑名單是**手動維護**，可視情況加入實際來源
+
+要啟用 RBL（熟悉風險後）：
+
+```
+sudo postconf -e 'smtpd_client_restrictions = check_client_access hash:/etc/postfix/whitelist, check_client_access hash:/etc/postfix/blacklist, reject_rbl_client zen.spamhaus.org, permit'
+sudo systemctl restart postfix
+```
+
+---
+
+## 🔑 密碼同步問題（同日發現）
+
+驗証時發現 `office` 帳號 POP3 登入失敗。根因：
+
+- `passwd -S office` 顯示密碼變更日為 **2026-10-29**（當天被改過）
+- 但 `/root/office-mail-password.txt` 時間戳為 **2026-10-28**（未更新）
+- 兩者不同步 → 用檔案裡的舊密碼登入失敗
+
+**處置**：已將密碼重設為與密碼檔一致，POP3 / POP3S 登入驗証通過。
+
+> 教訓：`passwd -S <user>` 的第 3 欄是密碼最後變更日，可用來判斷是否有人改過密碼。
+> 密碼驗証繞過 dovecot 直接比對：`crypt.crypt(密碼, spwd.getspnam(user).sp_pwdp)`。
+
+---
+
+## ✅ 完整功能驗証（最後一輪）
+
+| 情境 | 結果 |
+| --- | --- |
+| 用戶端收信（正確密碼） | ✅ 登入成功 |
+| 用戶端收信（錯密碼） | ✅ 拒絕 |
+| 外部投遞（不需認證） | ✅ 接受 |
+| 未認證轉寄 | ✅ 拒絕 |
+| 已認證寄外信 | ✅ 放行 |
+| HELO / myhostname | ✅ `mail.apex-wealth.com.tw`（與 PTR 一致） |
+
+### 回溯備份
+
+```
+/etc/postfix/main.cf.bak-helo-20261029-023848
+/etc/hosts.bak-20261029-023848
+/etc/postfix/main.cf.bak-rbl-20261029-024346
+```
+
+---
+
+## 尚待補強（非必要）
+
+| 項目 | 狀態 | 影響 |
+| --- | --- | --- |
+| **CAA 記錄** | ❌ 未設 | 任何 CA 都能用此網域簽憑證 |
+| **DNSSEC** | ❌ 未啟用 | DNS 可被偽造 |
+| **MTA-STS** | ❌ 未設 | 無法強制外部用 TLS 投遞 |
+| **DMARC 收緊** | `p=none` | 偽造防護未生效，建议觀察後改 `quarantine` |
+| **SpamAssassin** | ❌ 未裝 | 內容層垃圾信過濾（目前僅黑名單 + RBL 選項） |
+
