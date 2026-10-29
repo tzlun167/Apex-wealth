@@ -770,3 +770,75 @@ certbot.timer = active/enabled
 > ACME 站台（`/etc/nginx/sites-available/acme`）僅服務 `.well-known/acme-challenge/`，
 > 其餘路徑回 404——網站本體仍維持不上線（依先前的決策）。
 
+---
+
+## 📌 重要釐清：「收信」有兩個完全不同的意思（2026-10-29）
+
+先前文件與對話中「收信」一詞被用於兩個不同層次，造成誤解。明確區分：
+
+### 三個獨立層次
+
+| # | 層次 | 誰在用 | 需要認證？ |
+| --- | --- | --- | --- |
+| **A** | **客戶端收信**（POP3/IMAP） | 你的 Outlook / 郵件軟體 | ✅ **必須登入**（帳號+密碼） |
+| **B** | **客戶端寄信**（SMTP relay） | 你的 Outlook / 郵件軟體 | ✅ **必須認證**（SASL） |
+| **C** | **外部投遞給你**（SMTP inbound） | Gmail、客戶、DMARC 報告 | ❌ **不需**（供件方無你的帳密） |
+
+### 為什麼 C 不能要求認證
+
+SMTP 的認證是用來控制「**誰能用我的伺服器寄信出去**」（防止開放轉寄）。
+寄信給你的人（Gmail 等）**根本沒有你伺服器的帳號密碼**，要求認證等於拒收所有外來信。
+
+### 實測證據
+
+**A. 客戶端收信（必須登入）**
+
+```
+POP3 不送帳密        → -ERR [AUTH] Authentication failed.
+POP3 亂猜 office/wrong1 → 拒絕
+POP3 亂猜 admin/admin   → 拒絕
+POP3 正確帳密         → ✅ 登入成功
+IMAP 不送帳密         → [AUTHENTICATIONFAILED]
+```
+
+**B. 客戶端寄外信（必須認證）**
+
+```
+未認證寄 gmail  → 454 Relay access denied
+已認證寄 gmail  → 250 ✅
+```
+
+**C. 外部寄給你（不需認證）**
+
+```
+Google DMARC 報告 → office@  → 250 ✅ 收得到
+外部朋友 → kane@           → 250 ✅
+外部嘗試轉寄 → gmail        → 454 ✅ 拒絕（非開放轉寄）
+```
+
+### 修正紀錄
+
+先前依「所有收發信都要認證」字面設定，導致 C 也被擋（外部一律 `554`）。
+已修正為：
+
+```
+smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination
+smtpd_recipient_restrictions = （移除，不設 reject）
+```
+
+`defer_unauth_destination` 只擋「轉寄到非本地網域」，本地收件人放行。
+
+**結果：A、B 需認證；C 可收信。三者皆正確，且非開放轉寄站。**
+
+### 客戶端設定（不變）
+
+| 欄位 | 值 |
+| --- | --- |
+| 內送伺服器 | `mail.apex-wealth.com.tw` |
+| 內送埠 | 110（或 995 加密） |
+| 內送需登入 | **是** |
+| 外寄伺服器 | `mail.apex-wealth.com.tw` |
+| 外寄埠 | 25（或 587/465 加密） |
+| 外寄需認證 | **是** |
+| 帳號／密碼 | 系統帳號（`kane` / `office` / `apex`） |
+
