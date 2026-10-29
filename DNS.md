@@ -1029,3 +1029,94 @@ DKIM check details:
 
 **HELO = PTR = 公開可解析的 FQDN，三者對齊** → mail-tester 的兩項扣分全數消除。
 
+---
+
+## 🛡️ 啟用 Spamhaus RBL（2026-10-29）
+
+依要求只啟用**最大的一家**：Spamhaus ZEN。
+
+### 設定
+
+```
+smtpd_client_restrictions =
+    check_client_access hash:/etc/postfix/whitelist,
+    check_client_access hash:/etc/postfix/blacklist,
+    reject_rbl_client zen.spamhaus.org=127.0.0.2,
+    reject_rbl_client zen.spamhaus.org=127.0.0.3,
+    reject_rbl_client zen.spamhaus.org=127.0.0.4,
+    reject_rbl_client zen.spamhaus.org=127.0.0.9,
+    reject_rbl_client zen.spamhaus.org=127.0.0.10,
+    reject_rbl_client zen.spamhaus.org=127.0.0.11,
+    permit
+```
+
+### 為什麼要「指定回應碼」而不是直接 reject_rbl_client
+
+這是**關鍵的安全設計**。Spamhaus 的回應碼有兩種：
+
+| 回應碼 | 意義 |
+| --- | --- |
+| `127.0.0.2` / `.3` | SBL — 已知垃圾郵件來源 |
+| `127.0.0.4` ~ `.7` | XBL / CSS — 被入侵主機 |
+| `127.0.0.9` / `.10` / `.11` | PBL — 不應直連的動態 IP |
+| **`127.255.255.0/24`** | **錯誤碼**（非黑名單） |
+
+若寫成裸的 `reject_rbl_client zen.spamhaus.org`，postfix 會把**任何回應**都當成列入黑名單——
+包括 `127.255.255.252`（查詢來自公開解析器被拒）。
+
+**後果：DNS 一旦異常，所有外部郵件被誤擋。**
+
+指定明確回應碼後，錯誤碼不會觸發拒收。
+
+### 白名單優先
+
+`check_client_access hash:/etc/postfix/whitelist` 排在 RBL **之前**，
+且白名單結尾動作為 `OK`（立即放行，不再往下查）。
+
+白名單內容：`127.0.0.0/8`、`[::1]/128`、`192.168.1.0/24`、
+`.google.com`、`.microsoft.com`、`.outlook.com`。
+
+> 區網與主要郵件提供者不受 RBL 影響。
+
+### 驗証
+
+| 項目 | 結果 |
+| --- | --- |
+| 查詢功能 | `2.0.0.127` → `127.0.0.11` ✅ 正確判為列入 |
+| 乾淨 IP | `8.8.8.8` → 無回應 ✅ |
+| **自己這台** | `61.216.74.25` → **無回應** ✅ 未被列入 |
+| 用戶端收信 | ✅ 正常 |
+| 外部投遞 | ✅ 接受 |
+| 已認證寄外 | ✅ 放行 |
+
+### 為什麼先前沒啟用
+
+1. 誤擋風險（見上方回應碼說明）
+2. 上游 DNS 為 HiNet（`168.95.1.1`），可能被 Spamhaus 視為公開解析器
+3. 需要正確的錯誤碼處理——現已處理
+
+### 觀察指令（若懷疑誤擋）
+
+```bash
+# 看被 RBL 擋掉的紀錄
+sudo journalctl --no-pager -n 500 | grep -i 'spamhaus\|rbl'
+
+# 查某個 IP 是否被列入
+dig +short <reversed-ip>.zen.spamhaus.org
+```
+
+若發現誤擋，可暫時改為 `warn_if_reject reject_rbl_client ...` 只記錄不擋。
+
+### 回溯
+
+```
+/etc/postfix/main.cf.bak-spamhaus-20261029-052707
+```
+
+停用：
+
+```bash
+sudo postconf -e 'smtpd_client_restrictions = check_client_access hash:/etc/postfix/whitelist, check_client_access hash:/etc/postfix/blacklist, permit'
+sudo systemctl restart postfix
+```
+
