@@ -990,3 +990,42 @@ sudo systemctl restart postfix
 | **DMARC 收緊** | `p=none` | 偽造防護未生效，建议觀察後改 `quarantine` |
 | **SpamAssassin** | ❌ 未裝 | 內容層垃圾信過濾（目前僅黑名單 + RBL 選項） |
 
+---
+
+## ✅ port25 認證驗證通過（2026-10-29）
+
+修正 HELO 後，送測試信至 `check-auth@verifier.port25.com` 取得官方認證報告：
+
+```
+SPF check:          pass
+"iprev" check:      pass      ← 先前 -3 分的反解不符，已修復
+DKIM check:         pass
+```
+
+### 明細
+
+```
+SPF check details:
+  Result:         pass
+  ID(s) verified: smtp.mailfrom=office@apex-wealth.com.tw
+
+"iprev" check details:
+  Result:         pass (matches mail.apex-wealth.com.tw)
+  ID(s) verified: policy.iprev=61.216.74.25
+
+DKIM check details:
+  Result:         pass (matches From: office@apex-wealth.com.tw)
+  ID(s) verified: header.d=apex-wealth.com.tw
+```
+
+### 意義
+
+| 項目 | 先前 | 現在 |
+| --- | --- | --- |
+| 反解不符 | ❌ -3 | ✅ `iprev=pass` |
+| HELO 非 FQDN | ❌ -1.1 | ✅ 已為 `mail.apex-wealth.com.tw` |
+| SPF | ✅ | ✅ |
+| DKIM | ✅ | ✅ |
+
+**HELO = PTR = 公開可解析的 FQDN，三者對齊** → mail-tester 的兩項扣分全數消除。
+
