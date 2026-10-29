@@ -944,20 +944,49 @@ sudo systemctl restart postfix
 
 ---
 
-## 🔑 密碼同步問題（同日發現）
+## 🔑 密碼管理方式（重要觀念修正）
 
-驗証時發現 `office` 帳號 POP3 登入失敗。根因：
+### 實際生效的是系統密碼，不是那個檔案
 
-- `passwd -S office` 顯示密碼變更日為 **2026-10-29**（當天被改過）
-- 但 `/root/office-mail-password.txt` 時間戳為 **2026-10-28**（未更新）
-- 兩者不同步 → 用檔案裡的舊密碼登入失敗
+認證链路：
 
-**處置**：已將密碼重設為與密碼檔一致，POP3 / POP3S 登入驗証通過。
+```
+dovecot → PAM → /etc/shadow      ← 真正比對的
+postfix SASL → dovecot auth → 同上
+```
 
-> 教訓：`passwd -S <user>` 的第 3 欄是密碼最後變更日，可用來判斷是否有人改過密碼。
-> 密碼驗証繞過 dovecot 直接比對：`crypt.crypt(密碼, spwd.getspnam(user).sp_pwdp)`。
+`/root/office-mail-password.txt` 只是**初次建立帳號時的備忘錄**，
+**沒有任何服務讀取它**（已 grep `/etc`、`/usr/local`、`/root` 確認無引用）。
+刪除它也不影響收發信。
 
----
+### 檔案可能已過時
+
+備註檔記錄的是「初次設定的值」，**使用者隨時可能用 `passwd` 改過**。
+兩者不一致是正常的，不代表系統有問題。
+
+要驗証某個密碼是否為目前有效值（繞過 dovecot 直接比對）：
+
+```python
+import crypt, spwd
+pw = '待測密碼'
+h = spwd.getspnam('office').sp_pwdp
+print('有效' if crypt.crypt(pw, h) == h else '已失效')
+```
+
+判斷密碼是否曾被改過：
+
+```bash
+passwd -S office      # 第 3 欄 = 密碼最後變更日
+```
+
+### ⚠️ 不要自作主張「同步」密碼
+
+**實際發生過的錯誤**：發現用備忘錄裡的密碼登入失敗時，
+直接把密碼重設為備忘錄的值——但那次失敗是因為**使用者自己改了密碼**，
+這個動作反而**覆蓋掉使用者的變更**。
+
+**正確做法**：登入失敗時先問使用者，不要假設是「檔案不同步」。
+密碼屬於使用者，只在明確要求時才變更。
 
 ## ✅ 完整功能驗証（最後一輪）
 
